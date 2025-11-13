@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: voteku-test-system
+    env: node
+    plan: free
+    buildCommand: npm install && cd admin && npm install && npm run build && cd ..
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: WEBHOOK_URL
+        value: https://voteku-test-system.onrender.com
+    disk:
+      name: voteku-db
+      mountPath: /opt/render/project/src
+      sizeGB: 1
