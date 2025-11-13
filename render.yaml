@@ -3,7 +3,7 @@ services:
     name: voteku-test-system
     env: node
     plan: free
-    buildCommand: npm install && cd admin && npm install && npm run build && cd ..
+    buildCommand: npm install && npm install --prefix admin && npm run build --prefix admin
     startCommand: npm start
     envVars:
       - key: NODE_ENV
