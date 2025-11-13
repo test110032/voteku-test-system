@@ -1,3 +1,16 @@
+/**
+ * Telegram Bot для проведения тестирования
+ *
+ * ВАЖНО ДЛЯ PRODUCTION:
+ * - При изменении логики вопросов учитывайте активные сессии пользователей
+ * - Webhook URL должен быть HTTPS (Render предоставляет автоматически)
+ * - Токен бота хранится в переменных окружения, никогда не коммитится в Git
+ *
+ * Режимы работы:
+ * - Development: Long Polling (локальная разработка)
+ * - Production: Webhook (Render/другие хостинги)
+ */
+
 import TelegramBot from 'node-telegram-bot-api';
 import {
   generateRandomTest,
@@ -26,12 +39,16 @@ export const initBot = (token, useWebhook = false, webhookUrl = null) => {
   }
 
   if (useWebhook && webhookUrl) {
-    // Для production с webhook
+    // PRODUCTION: Webhook режим
+    // Telegram отправляет обновления на наш сервер
+    // ВАЖНО: При изменении webhookUrl нужно перезапустить сервис
     bot = new TelegramBot(token);
     bot.setWebHook(`${webhookUrl}/bot${token}`);
     console.log('✅ Telegram Bot запущен в режиме Webhook');
   } else {
-    // Для разработки с long polling
+    // DEVELOPMENT: Long Polling режим
+    // Бот сам опрашивает Telegram API на наличие обновлений
+    // Не использовать на production (может вызвать конфликты при масштабировании)
     bot = new TelegramBot(token, { polling: true });
     console.log('✅ Telegram Bot запущен в режиме Long Polling');
   }
@@ -57,13 +74,23 @@ const setupHandlers = () => {
   });
 };
 
-// Обработчик команды /start
+/**
+ * Обработчик команды /start
+ *
+ * ВАЖНО: Здесь происходит проверка на повторное прохождение теста.
+ * Пользователь может пройти тест только один раз (по telegram_id).
+ *
+ * Если нужно разрешить повторное прохождение:
+ * 1. Удалите проверку hasUserCompletedTest
+ * 2. Измените UNIQUE constraint на telegram_id в schema.sql
+ */
 const handleStart = async (msg) => {
   const chatId = msg.chat.id;
   const telegramId = msg.from.id;
 
   try {
     // Проверяем, не прошёл ли пользователь уже тест
+    // PRODUCTION: Эта проверка предотвращает повторное прохождение
     const completedTest = await hasUserCompletedTest(telegramId);
 
     if (completedTest) {
