@@ -18,10 +18,8 @@ services:
         fromDatabase:
           name: voteku-db
           property: connectionString
-      - key: RESEND_API_KEY
+      - key: ADMIN_CHAT_ID
         sync: false
-      - key: EMAIL_RECIPIENT
-        value: brutdx@gmail.com
 
 databases:
   - name: voteku-db

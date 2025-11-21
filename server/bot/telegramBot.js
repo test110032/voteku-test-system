@@ -29,7 +29,7 @@ import {
   clearUserState,
   States
 } from '../services/stateService.js';
-import { sendTestResults } from '../services/emailService.js';
+import { sendTestResultsToAdmin, setBotInstance } from '../services/notificationService.js';
 
 let bot = null;
 
@@ -55,6 +55,7 @@ export const initBot = (token, useWebhook = false, webhookUrl = null) => {
   }
 
   setupHandlers();
+  setBotInstance(bot);
   return bot;
 };
 
@@ -305,9 +306,9 @@ const finishTest = async (chatId, telegramId, sessionId) => {
     // Очищаем состояние пользователя
     await clearUserState(telegramId);
 
-    // Отправляем результаты на email (асинхронно, не блокируем ответ пользователю)
-    sendTestResults(sessionId).catch(err => {
-      console.error('Failed to send email:', err);
+    // Отправляем результаты админу в Telegram (асинхронно, не блокируем ответ пользователю)
+    sendTestResultsToAdmin(sessionId).catch(err => {
+      console.error('Failed to send notification:', err);
     });
 
     // Отправляем результат
