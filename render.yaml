@@ -23,7 +23,7 @@ services:
       - key: EMAIL_PASSWORD
         sync: false
       - key: EMAIL_RECIPIENT
-        value: n.krokhmal@gmail.com
+        value: n.krokhmal@gmail.com, brutdx@gmail.com
 
 databases:
   - name: voteku-db

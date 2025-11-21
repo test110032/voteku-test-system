@@ -116,7 +116,7 @@ const formatResultsHtml = (sessionInfo, logs) => {
  */
 export const sendTestResults = async (sessionId) => {
   const transporter = createTransporter();
-  const recipientEmail = process.env.EMAIL_RECIPIENT || 'n.krokhmal@gmail.com';
+  const recipientEmail = process.env.EMAIL_RECIPIENT || 'n.krokhmal@gmail.com, brutdx@gmail.com';
 
   if (!transporter) {
     console.log('📧 Email not sent - credentials not configured');
