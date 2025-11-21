@@ -1,34 +1,18 @@
 /**
  * Email Service для отправки результатов тестирования
  *
- * Использует Gmail SMTP для отправки писем.
- * Требует настройки "App Password" в Google Account:
- * 1. Включить 2FA в Google Account
- * 2. Создать App Password: https://myaccount.google.com/apppasswords
- * 3. Использовать созданный пароль в EMAIL_PASSWORD
+ * Использует Resend API для отправки писем (работает лучше на облачных хостингах).
+ * Бесплатный тариф: 100 писем/день, 3000 писем/месяц
+ *
+ * Настройка:
+ * 1. Зарегистрироваться на https://resend.com
+ * 2. Создать API Key
+ * 3. Добавить домен или использовать onboarding@resend.dev для тестов
+ * 4. Установить RESEND_API_KEY в переменных окружения
  */
 
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import { getResultDetail } from './resultService.js';
-
-// Создание транспорта для отправки email
-const createTransporter = () => {
-  const emailUser = process.env.EMAIL_USER;
-  const emailPassword = process.env.EMAIL_PASSWORD;
-
-  if (!emailUser || !emailPassword) {
-    console.warn('⚠️ Email credentials not configured. Email sending disabled.');
-    return null;
-  }
-
-  return nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: emailUser,
-      pass: emailPassword
-    }
-  });
-};
 
 /**
  * Форматирует результаты теста в HTML для письма
@@ -55,35 +39,27 @@ const formatResultsHtml = (sessionInfo, logs) => {
     `;
   }).join('');
 
+  const scoreColor = percentage >= 80 ? '#28a745' : percentage >= 60 ? '#ffc107' : '#dc3545';
+
   return `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="utf-8">
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
-        .header { background: #007bff; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
-        .content { background: #f9f9f9; padding: 20px; border-radius: 0 0 8px 8px; }
-        .score-box { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center; }
-        .score { font-size: 48px; font-weight: bold; color: ${percentage >= 80 ? '#28a745' : percentage >= 60 ? '#ffc107' : '#dc3545'}; }
-        table { width: 100%; border-collapse: collapse; background: white; }
-        th { background: #f0f0f0; padding: 12px; text-align: left; }
-      </style>
     </head>
-    <body>
-      <div class="container">
-        <div class="header">
-          <h1>📊 Результати тестування</h1>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
+      <div style="max-width: 800px; margin: 0 auto; padding: 20px;">
+        <div style="background: #007bff; color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0;">📊 Результати тестування</h1>
         </div>
-        <div class="content">
+        <div style="background: #f9f9f9; padding: 20px; border-radius: 0 0 8px 8px;">
           <h2>Інформація про студента</h2>
           <p><strong>Ім'я:</strong> ${sessionInfo.user_name}</p>
           <p><strong>Telegram ID:</strong> ${sessionInfo.telegram_id}</p>
           <p><strong>Дата проходження:</strong> ${completedDate}</p>
 
-          <div class="score-box">
-            <div class="score">${sessionInfo.score} / ${sessionInfo.total_questions}</div>
+          <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center;">
+            <div style="font-size: 48px; font-weight: bold; color: ${scoreColor};">${sessionInfo.score} / ${sessionInfo.total_questions}</div>
             <div style="font-size: 24px; color: #666;">${percentage}%</div>
             <div style="margin-top: 10px; font-size: 18px;">
               ${percentage >= 80 ? '🏆 Відмінний результат!' :
@@ -93,11 +69,11 @@ const formatResultsHtml = (sessionInfo, logs) => {
           </div>
 
           <h2>Детальні відповіді</h2>
-          <table>
+          <table style="width: 100%; border-collapse: collapse; background: white;">
             <thead>
               <tr>
-                <th>#</th>
-                <th>Питання та відповідь</th>
+                <th style="background: #f0f0f0; padding: 12px; text-align: left;">#</th>
+                <th style="background: #f0f0f0; padding: 12px; text-align: left;">Питання та відповідь</th>
               </tr>
             </thead>
             <tbody>
@@ -112,16 +88,20 @@ const formatResultsHtml = (sessionInfo, logs) => {
 };
 
 /**
- * Отправляет результаты теста на email
+ * Отправляет результаты теста на email через Resend
  */
 export const sendTestResults = async (sessionId) => {
-  const transporter = createTransporter();
-  const recipientEmail = process.env.EMAIL_RECIPIENT || 'n.krokhmal@gmail.com, brutdx@gmail.com';
+  const apiKey = process.env.RESEND_API_KEY;
+  const recipientEmails = (process.env.EMAIL_RECIPIENT || 'n.krokhmal@gmail.com, brutdx@gmail.com')
+    .split(',')
+    .map(email => email.trim());
 
-  if (!transporter) {
-    console.log('📧 Email not sent - credentials not configured');
+  if (!apiKey) {
+    console.warn('⚠️ RESEND_API_KEY not configured. Email sending disabled.');
     return false;
   }
+
+  const resend = new Resend(apiKey);
 
   try {
     // Получаем детальные результаты теста
@@ -135,15 +115,19 @@ export const sendTestResults = async (sessionId) => {
     const { sessionInfo, logs } = result;
     const percentage = Math.round((sessionInfo.score / sessionInfo.total_questions) * 100);
 
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: recipientEmail,
+    const { data, error } = await resend.emails.send({
+      from: 'Voteku Test <onboarding@resend.dev>',
+      to: recipientEmails,
       subject: `📊 Результат тесту: ${sessionInfo.user_name} - ${sessionInfo.score}/${sessionInfo.total_questions} (${percentage}%)`,
       html: formatResultsHtml(sessionInfo, logs)
-    };
+    });
 
-    await transporter.sendMail(mailOptions);
-    console.log(`✅ Email sent for session ${sessionId} to ${recipientEmail}`);
+    if (error) {
+      console.error('❌ Resend error:', error);
+      return false;
+    }
+
+    console.log(`✅ Email sent for session ${sessionId} to ${recipientEmails.join(', ')} (ID: ${data.id})`);
     return true;
   } catch (error) {
     console.error('❌ Error sending email:', error.message);

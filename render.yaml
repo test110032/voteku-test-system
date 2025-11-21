@@ -18,9 +18,7 @@ services:
         fromDatabase:
           name: voteku-db
           property: connectionString
-      - key: EMAIL_USER
-        sync: false
-      - key: EMAIL_PASSWORD
+      - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_RECIPIENT
         value: n.krokhmal@gmail.com, brutdx@gmail.com
