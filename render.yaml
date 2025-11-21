@@ -21,7 +21,7 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_RECIPIENT
-        value: n.krokhmal@gmail.com, brutdx@gmail.com
+        value: brutdx@gmail.com
 
 databases:
   - name: voteku-db
