@@ -22,9 +22,9 @@ export const setBotInstance = (bot) => {
 };
 
 /**
- * Форматирует результаты теста для Telegram сообщения
+ * Форматирует заголовок с общей информацией о тесте
  */
-const formatResultsText = (sessionInfo, logs) => {
+const formatHeader = (sessionInfo) => {
   const percentage = Math.round((sessionInfo.score / sessionInfo.total_questions) * 100);
   const completedDate = new Date(sessionInfo.completed_at).toLocaleString('uk-UA');
 
@@ -33,30 +33,49 @@ const formatResultsText = (sessionInfo, logs) => {
                      percentage >= 60 ? 'Добрий результат!' :
                      'Потребує додаткової підготовки';
 
-  // Краткая сводка
   let message = `📊 *Новий результат тестування*\n\n`;
   message += `👤 *Студент:* ${sessionInfo.user_name}\n`;
   message += `🆔 *Telegram ID:* \`${sessionInfo.telegram_id}\`\n`;
   message += `📅 *Дата:* ${completedDate}\n\n`;
   message += `✅ *Результат:* ${sessionInfo.score}/${sessionInfo.total_questions} (${percentage}%)\n`;
-  message += `${statusEmoji} ${statusText}\n\n`;
-
-  // Детали по неправильным ответам (если есть)
-  const wrongAnswers = logs.filter(log => !log.is_correct);
-  if (wrongAnswers.length > 0) {
-    message += `❌ *Помилки (${wrongAnswers.length}):*\n`;
-    wrongAnswers.slice(0, 10).forEach((log, index) => {
-      const userAnswer = log.options[log.user_answer_index] || 'Не відповів';
-      message += `\n${index + 1}. ${log.question_text.substring(0, 100)}${log.question_text.length > 100 ? '...' : ''}\n`;
-      message += `   ❌ Відповідь: ${userAnswer.substring(0, 50)}\n`;
-      message += `   ✅ Правильно: ${log.options[log.correct_answer_index].substring(0, 50)}\n`;
-    });
-    if (wrongAnswers.length > 10) {
-      message += `\n_...та ще ${wrongAnswers.length - 10} помилок_\n`;
-    }
-  }
+  message += `${statusEmoji} ${statusText}`;
 
   return message;
+};
+
+/**
+ * Разбивает массив ответов на части для отдельных сообщений
+ */
+const formatAnswerMessages = (logs) => {
+  const messages = [];
+  const ANSWERS_PER_MESSAGE = 10;
+
+  for (let i = 0; i < logs.length; i += ANSWERS_PER_MESSAGE) {
+    const chunk = logs.slice(i, i + ANSWERS_PER_MESSAGE);
+    const startNum = i + 1;
+    const endNum = Math.min(i + ANSWERS_PER_MESSAGE, logs.length);
+
+    let message = `📝 *Відповіді ${startNum}-${endNum} з ${logs.length}:*\n`;
+
+    chunk.forEach((log, index) => {
+      const questionNum = i + index + 1;
+      const userAnswer = log.options[log.user_answer_index] || 'Не відповів';
+      const correctAnswer = log.options[log.correct_answer_index];
+      const isCorrect = log.is_correct;
+
+      message += `\n*${questionNum}.* ${log.question_text}\n`;
+      if (isCorrect) {
+        message += `   ✅ ${userAnswer}\n`;
+      } else {
+        message += `   ❌ Відповідь: ${userAnswer}\n`;
+        message += `   ✅ Правильно: ${correctAnswer}\n`;
+      }
+    });
+
+    messages.push(message);
+  }
+
+  return messages;
 };
 
 /**
@@ -87,13 +106,25 @@ export const sendTestResultsToAdmin = async (sessionId) => {
     }
 
     const { sessionInfo, logs } = result;
-    const message = formatResultsText(sessionInfo, logs);
+
+    // Формируем сообщения
+    const headerMessage = formatHeader(sessionInfo);
+    const answerMessages = formatAnswerMessages(logs);
 
     // Отправляем всем админам
     for (const chatId of adminChatIds) {
       try {
-        await botInstance.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-        console.log(`✅ Telegram notification sent to ${chatId}`);
+        // Сначала заголовок
+        await botInstance.sendMessage(chatId, headerMessage, { parse_mode: 'Markdown' });
+
+        // Затем все ответы по частям
+        for (const msg of answerMessages) {
+          await botInstance.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
+          // Небольшая задержка между сообщениями чтобы не превысить лимиты
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        console.log(`✅ Telegram notification sent to ${chatId} (${1 + answerMessages.length} messages)`);
       } catch (err) {
         console.error(`❌ Failed to send to ${chatId}:`, err.message);
       }
