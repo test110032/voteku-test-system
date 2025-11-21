@@ -18,6 +18,12 @@ services:
         fromDatabase:
           name: voteku-db
           property: connectionString
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASSWORD
+        sync: false
+      - key: EMAIL_RECIPIENT
+        value: n.krokhmal@gmail.com
 
 databases:
   - name: voteku-db

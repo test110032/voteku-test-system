@@ -29,6 +29,7 @@ import {
   clearUserState,
   States
 } from '../services/stateService.js';
+import { sendTestResults } from '../services/emailService.js';
 
 let bot = null;
 
@@ -303,6 +304,11 @@ const finishTest = async (chatId, telegramId, sessionId) => {
 
     // Очищаем состояние пользователя
     await clearUserState(telegramId);
+
+    // Отправляем результаты на email (асинхронно, не блокируем ответ пользователю)
+    sendTestResults(sessionId).catch(err => {
+      console.error('Failed to send email:', err);
+    });
 
     // Отправляем результат
     const percentage = Math.round((result.score / result.total_questions) * 100);
