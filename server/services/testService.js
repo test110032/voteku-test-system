@@ -6,16 +6,39 @@ import fs from 'fs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Загрузка банка вопросов
-let questionsBank = null;
+// Типы тестов
+export const TestTypes = {
+  VOTEKU: 'VOTEKU',
+  ODS: 'ODS'
+};
 
-const loadQuestions = () => {
-  if (!questionsBank) {
-    const questionsPath = join(dirname(dirname(__dirname)), 'questions.json');
-    const data = fs.readFileSync(questionsPath, 'utf-8');
-    questionsBank = JSON.parse(data);
+// Конфигурация тестов
+const TEST_CONFIG = {
+  [TestTypes.VOTEKU]: {
+    fileName: 'questions.json',
+    questionsCount: 30
+  },
+  [TestTypes.ODS]: {
+    fileName: 'questions_ods.json',
+    questionsCount: 50
   }
-  return questionsBank;
+};
+
+// Банки вопросов
+let questionsBanks = {
+  [TestTypes.VOTEKU]: null,
+  [TestTypes.ODS]: null
+};
+
+// Загрузка банка вопросов по типу теста
+const loadQuestions = (testType = TestTypes.VOTEKU) => {
+  if (!questionsBanks[testType]) {
+    const config = TEST_CONFIG[testType];
+    const questionsPath = join(dirname(dirname(__dirname)), config.fileName);
+    const data = fs.readFileSync(questionsPath, 'utf-8');
+    questionsBanks[testType] = JSON.parse(data);
+  }
+  return questionsBanks[testType];
 };
 
 // Алгоритм Fisher-Yates для случайного перемешивания
@@ -28,20 +51,27 @@ const shuffleArray = (array) => {
   return shuffled;
 };
 
-// Генерация случайного теста из 30 вопросов
-export const generateRandomTest = (count = 30) => {
-  const questions = loadQuestions();
+// Получить количество вопросов для типа теста
+export const getQuestionsCount = (testType = TestTypes.VOTEKU) => {
+  return TEST_CONFIG[testType].questionsCount;
+};
+
+// Генерация случайного теста
+export const generateRandomTest = (testType = TestTypes.VOTEKU) => {
+  const config = TEST_CONFIG[testType];
+  const questions = loadQuestions(testType);
   const shuffled = shuffleArray(questions);
-  return shuffled.slice(0, count);
+  return shuffled.slice(0, config.questionsCount);
 };
 
 // Создание новой сессии тестирования
-export const createTestSession = async (telegramId, userName) => {
+export const createTestSession = async (telegramId, userName, testType = TestTypes.VOTEKU) => {
   try {
+    const config = TEST_CONFIG[testType];
     const result = await dbRun(
-      `INSERT INTO test_sessions (telegram_id, user_name, status, started_at)
-       VALUES (?, ?, 'in_progress', datetime('now'))`,
-      [telegramId, userName]
+      `INSERT INTO test_sessions (telegram_id, user_name, test_type, total_questions, status, started_at)
+       VALUES (?, ?, ?, ?, 'in_progress', datetime('now'))`,
+      [telegramId, userName, testType, config.questionsCount]
     );
     return result.id;
   } catch (error) {
@@ -162,6 +192,21 @@ export const getCurrentSession = async (telegramId) => {
     return session || null;
   } catch (error) {
     throw new Error(`Ошибка получения текущей сессии: ${error.message}`);
+  }
+};
+
+// Получение сессии по ID
+export const getSessionById = async (sessionId) => {
+  try {
+    const session = await dbGet(
+      `SELECT id, user_name, test_type, score, total_questions, status
+       FROM test_sessions
+       WHERE id = ?`,
+      [sessionId]
+    );
+    return session || null;
+  } catch (error) {
+    throw new Error(`Ошибка получения сессии: ${error.message}`);
   }
 };
 

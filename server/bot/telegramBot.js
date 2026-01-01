@@ -20,7 +20,10 @@ import {
   completeTest,
   hasUserCompletedTest,
   getCurrentSession,
-  getQuestionByIndex
+  getQuestionByIndex,
+  TestTypes,
+  getQuestionsCount,
+  getSessionById
 } from '../services/testService.js';
 import {
   getUserState,
@@ -30,6 +33,7 @@ import {
   States
 } from '../services/stateService.js';
 import { sendTestResultsToAdmin, setBotInstance } from '../services/notificationService.js';
+import { dbRun } from '../database/db.js';
 
 let bot = null;
 
@@ -111,10 +115,13 @@ const handleStart = async (msg) => {
 
     if (state.state === States.TESTING && state.session_id) {
       // Пользователь уже проходит тест
+      const session = await getSessionById(state.session_id);
+      const totalQuestions = session ? session.total_questions : 30;
+
       await bot.sendMessage(
         chatId,
         `⚠️ Ви вже розпочали тестування.\n\n` +
-        `Продовжуйте відповідати на питання. Поточне питання: ${state.current_question_index + 1} із 30`
+        `Продовжуйте відповідати на питання. Поточне питання: ${state.current_question_index + 1} із ${totalQuestions}`
       );
 
       // Отправляем текущий вопрос
@@ -127,7 +134,7 @@ const handleStart = async (msg) => {
     await bot.sendMessage(
       chatId,
       `👋 Вітаємо в системі тестування!\n\n` +
-      `📝 Вам буде запропоновано 30 випадкових питань з банку питань.\n` +
+      `📝 Вам буде запропоновано пройти тестування.\n` +
       `✅ На кожне питання потрібно вибрати один правильний варіант відповіді.\n\n` +
       `Будь ласка, введіть ваше Ім'я та Прізвище:`
     );
@@ -155,6 +162,10 @@ const handleMessage = async (msg) => {
     if (state.state === States.AWAITING_NAME) {
       await handleNameInput(chatId, telegramId, text);
     }
+    // Если ожидаем выбор типа теста через текст (не используется, т.к. используем кнопки)
+    else if (state.state === States.AWAITING_TEST_TYPE) {
+      await bot.sendMessage(chatId, '⚠️ Будь ласка, виберіть тип тесту за допомогою кнопок нижче.');
+    }
   } catch (error) {
     console.error('Ошибка в handleMessage:', error);
     await bot.sendMessage(chatId, '❌ Виникла помилка. Спробуйте ще раз.');
@@ -169,11 +180,69 @@ const handleNameInput = async (chatId, telegramId, userName) => {
   }
 
   try {
-    // Создаём сессию
-    const sessionId = await createTestSession(telegramId, userName.trim());
+    // Сохраняем имя пользователя в состоянии (временно используем session_id для хранения имени)
+    await setUserState(telegramId, States.AWAITING_TEST_TYPE);
 
-    // Генерируем 30 случайных вопросов
-    const questions = generateRandomTest(30);
+    // Сохраняем имя в БД состояний (используем хак - сохраняем в session_id как строку)
+    await dbRun(
+      `UPDATE user_states SET session_id = ? WHERE telegram_id = ?`,
+      [userName.trim(), telegramId]
+    );
+
+    // Показываем выбор типа теста
+    const keyboard = {
+      inline_keyboard: [
+        [{ text: '🔧 ВОТЕКУ (30 питань)', callback_data: 'test_type_VOTEKU' }],
+        [{ text: '📞 ОДС (50 питань)', callback_data: 'test_type_ODS' }]
+      ]
+    };
+
+    await bot.sendMessage(
+      chatId,
+      `✅ Дякуємо, ${userName.trim()}!\n\n` +
+      `📋 Будь ласка, оберіть тип тесту:\n\n` +
+      `🔧 <b>ВОТЕКУ</b> - для співробітників відділу по обслуговуванню та експлуатації когенераційних установок (30 питань)\n\n` +
+      `📞 <b>ОДС</b> - для диспетчера оперативно-диспетчерської служби (50 питань)`,
+      { reply_markup: keyboard, parse_mode: 'HTML' }
+    );
+  } catch (error) {
+    console.error('Ошибка при обработке имени:', error);
+    await bot.sendMessage(chatId, '❌ Помилка. Спробуйте /start');
+  }
+};
+
+// Обработка выбора типа теста
+const handleTestTypeSelection = async (chatId, messageId, telegramId, callbackData, queryId) => {
+  try {
+    // Извлекаем тип теста из callback_data
+    const testType = callbackData.replace('test_type_', '');
+
+    // Проверяем валидность типа
+    if (testType !== TestTypes.VOTEKU && testType !== TestTypes.ODS) {
+      await bot.answerCallbackQuery(queryId, { text: '❌ Невірний тип тесту' });
+      return;
+    }
+
+    // Получаем состояние (из session_id достаем имя пользователя)
+    const state = await getUserState(telegramId);
+    const userName = state.session_id; // Мы сохранили имя во временном поле
+
+    if (!userName || state.state !== States.AWAITING_TEST_TYPE) {
+      await bot.answerCallbackQuery(queryId, { text: '⚠️ Спочатку почніть тест через /start' });
+      return;
+    }
+
+    // Убираем кнопки выбора
+    await bot.editMessageReplyMarkup(
+      { inline_keyboard: [] },
+      { chat_id: chatId, message_id: messageId }
+    );
+
+    // Создаём сессию с выбранным типом теста
+    const sessionId = await createTestSession(telegramId, userName, testType);
+
+    // Генерируем вопросы согласно типу теста
+    const questions = generateRandomTest(testType);
 
     // Сохраняем вопросы в БД
     await saveTestQuestions(sessionId, questions);
@@ -181,20 +250,33 @@ const handleNameInput = async (chatId, telegramId, userName) => {
     // Устанавливаем состояние тестирования
     await setUserState(telegramId, States.TESTING, sessionId, 0);
 
+    // Получаем количество вопросов
+    const questionsCount = getQuestionsCount(testType);
+
+    // Название теста для отображения
+    const testName = testType === TestTypes.VOTEKU ? 'ВОТЕКУ' : 'ОДС';
+
+    // Отправляем подтверждение
+    await bot.answerCallbackQuery(queryId, {
+      text: `✅ Обрано тест ${testName}`,
+      show_alert: false
+    });
+
     // Отправляем приветственное сообщение
     await bot.sendMessage(
       chatId,
-      `✅ Дякуємо, ${userName}!\n\n` +
-      `🎯 Тест складається з 30 питань.\n` +
+      `🎯 Тест <b>${testName}</b> складається з ${questionsCount} питань.\n` +
       `⏱ Обмеження за часом немає.\n` +
       `📌 Ви не можете повернутися до попередніх питань.\n\n` +
-      `Розпочинаємо тестування!`
+      `Розпочинаємо тестування!`,
+      { parse_mode: 'HTML' }
     );
 
     // Отправляем первый вопрос
     await sendQuestion(chatId, sessionId, 0);
   } catch (error) {
-    console.error('Ошибка при создании теста:', error);
+    console.error('Ошибка при выборе типа теста:', error);
+    await bot.answerCallbackQuery(queryId, { text: '❌ Виникла помилка' });
     await bot.sendMessage(chatId, '❌ Помилка створення тесту. Спробуйте /start');
   }
 };
@@ -209,6 +291,10 @@ const sendQuestion = async (chatId, sessionId, questionIndex) => {
       return;
     }
 
+    // Получаем информацию о сессии для определения общего количества вопросов
+    const session = await getSessionById(sessionId);
+    const totalQuestions = session ? session.total_questions : 30;
+
     // Формируем клавиатуру с вариантами ответов
     const keyboard = {
       inline_keyboard: question.options.map((option, index) => [{
@@ -219,7 +305,7 @@ const sendQuestion = async (chatId, sessionId, questionIndex) => {
 
     await bot.sendMessage(
       chatId,
-      `❓ Питання ${questionIndex + 1} із 30:\n\n${question.text}`,
+      `❓ Питання ${questionIndex + 1} із ${totalQuestions}:\n\n${question.text}`,
       { reply_markup: keyboard }
     );
   } catch (error) {
@@ -236,6 +322,12 @@ const handleCallbackQuery = async (query) => {
   const data = query.data;
 
   try {
+    // Проверяем, это выбор типа теста?
+    if (data.startsWith('test_type_')) {
+      await handleTestTypeSelection(chatId, messageId, telegramId, data, query.id);
+      return;
+    }
+
     // Парсим callback_data: answer_questionIndex_answerIndex
     const match = data.match(/^answer_(\d+)_(\d+)$/);
 
@@ -276,10 +368,14 @@ const handleCallbackQuery = async (query) => {
       show_alert: false
     });
 
+    // Получаем информацию о сессии для определения общего количества вопросов
+    const session = await getSessionById(state.session_id);
+    const totalQuestions = session ? session.total_questions : 30;
+
     // Переходим к следующему вопросу
     const nextQuestionIndex = questionIndex + 1;
 
-    if (nextQuestionIndex < 30) {
+    if (nextQuestionIndex < totalQuestions) {
       // Есть ещё вопросы
       await updateQuestionIndex(telegramId, nextQuestionIndex);
 

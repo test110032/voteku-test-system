@@ -4,6 +4,7 @@ import { dbRun, dbGet } from '../database/db.js';
 export const States = {
   IDLE: 'idle',
   AWAITING_NAME: 'awaiting_name',
+  AWAITING_TEST_TYPE: 'awaiting_test_type',
   TESTING: 'testing'
 };
 

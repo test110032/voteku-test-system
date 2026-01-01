@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS test_sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_name TEXT NOT NULL,
   telegram_id INTEGER UNIQUE NOT NULL,
+  test_type TEXT NOT NULL DEFAULT 'VOTEKU', -- VOTEKU | ODS
   score INTEGER DEFAULT 0,
   total_questions INTEGER DEFAULT 30,
   status TEXT DEFAULT 'in_progress', -- in_progress | completed
