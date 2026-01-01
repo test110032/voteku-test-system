@@ -45,6 +45,27 @@ export const dbAll = (sql, params = []) => {
   });
 };
 
+// Применение миграций
+const runMigrations = async () => {
+  try {
+    // Миграция: добавление столбца test_type (если его нет)
+    try {
+      await dbRun(`ALTER TABLE test_sessions ADD COLUMN test_type TEXT NOT NULL DEFAULT 'VOTEKU'`);
+      console.log('✅ Миграция: добавлен столбец test_type');
+    } catch (error) {
+      // Столбец уже существует - это нормально
+      if (error.message && error.message.includes('duplicate column name')) {
+        console.log('ℹ️  Столбец test_type уже существует');
+      } else {
+        throw error;
+      }
+    }
+  } catch (error) {
+    console.error('❌ Ошибка применения миграций:', error);
+    throw error;
+  }
+};
+
 // Инициализация базы данных из schema.sql
 export const initDatabase = async () => {
   try {
@@ -62,6 +83,9 @@ export const initDatabase = async () => {
     }
 
     console.log('✅ База данных инициализирована');
+
+    // Применяем миграции после инициализации
+    await runMigrations();
   } catch (error) {
     console.error('❌ Ошибка инициализации БД:', error);
     throw error;
