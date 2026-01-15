@@ -64,9 +64,24 @@ export const generateRandomTest = (testType = TestTypes.VOTEKU) => {
   return shuffled.slice(0, config.questionsCount);
 };
 
+// Удаление старой сессии пользователя (для возможности повторного прохождения)
+export const deleteUserSession = async (telegramId) => {
+  try {
+    await dbRun(
+      `DELETE FROM test_sessions WHERE telegram_id = ?`,
+      [telegramId]
+    );
+  } catch (error) {
+    throw new Error(`Ошибка удаления сессии: ${error.message}`);
+  }
+};
+
 // Создание новой сессии тестирования
 export const createTestSession = async (telegramId, userName, testType = TestTypes.VOTEKU) => {
   try {
+    // Удаляем старую сессию, если существует (для повторного прохождения)
+    await deleteUserSession(telegramId);
+
     const config = TEST_CONFIG[testType];
     const result = await dbRun(
       `INSERT INTO test_sessions (telegram_id, user_name, test_type, total_questions, status, started_at)
